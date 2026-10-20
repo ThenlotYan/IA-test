@@ -9,12 +9,10 @@ caméra qui avance toute seule (l'aigle t'attrape si tu traînes), score sauvega
 
 Contrôles :  flèches / ZQSD / WASD  (ESPACE = avancer)
              P = pause, R = rejouer, ECHAP = quitter
-             I (ou TAB / F1) = activer / couper l'IA (apprentissage par renforcement, ai_rl.py)
-             L = apprentissage de l'IA ON/OFF   F = vitesse de simulation x1 / x4 / x16 / x64
              C = changer de personnage (écran titre, déblocage avec les pièces)
 
 Installation :  sudo apt install python3-pygame     (ou)   pip install pygame-ce
-Lancement    :  python3 froggy_road.py
+Lancement    :  python3 Croassy_Road.py
 """
 import json
 import math
@@ -23,14 +21,6 @@ import sys
 from pathlib import Path
 
 import pygame
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))   # cherche ai_minimax.py à côté du jeu
-AI_ERROR = ""
-try:
-    from ai_rl import RLAgent as MinimaxAI   # IA par apprentissage par renforcement (ai_rl.py)
-except Exception as _e:                    # fichier absent ou erreur dedans : on l'affiche
-    MinimaxAI = None
-    AI_ERROR = "%s: %s" % (type(_e).__name__, _e)
 
 # --------------------------------------------------------------------------
 # Constantes
@@ -320,10 +310,6 @@ class Game:
         self.best, self.coins = 0, 0
         self.owned, self.skin_i = {SKINS[0]["name"]}, 0
         self.snd = make_sounds()
-        self.ai = MinimaxAI() if MinimaxAI else None
-        self.ai_on = False
-        self.speed = 1
-        self.ai_msg, self.ai_msg_t = "", -9.0
         self.load()
         self.t = 0.0
         self.paused = False
@@ -348,8 +334,6 @@ class Game:
 
     def shutdown(self):
         self.save()
-        if self.ai:
-            self.ai.save()
 
     # ---- état ----
     def reset(self, state="play"):
@@ -438,20 +422,6 @@ class Game:
         if k == pygame.K_c and self.state == "title":
             self.next_skin()
             return
-        if k == pygame.K_f:
-            self.speed = {1: 4, 4: 16, 16: 64}.get(self.speed, 1)
-            return
-        if k == pygame.K_l and self.ai:
-            self.ai.learning = not self.ai.learning
-            return
-        if k in (pygame.K_i, pygame.K_TAB, pygame.K_F1):
-            if not self.ai:
-                self.ai_msg, self.ai_msg_t = "IA introuvable : mets ai_rl.py à côté du jeu", self.t
-                return
-            self.ai_on = not self.ai_on
-            if self.ai_on and self.state == "title":
-                self.state = "play"
-            return
         mv = None
         if k in (pygame.K_UP, pygame.K_w, pygame.K_z, pygame.K_SPACE):
             mv = (0, 1)
@@ -533,21 +503,10 @@ class Game:
             r.update(dt, w.rng)
         if self.state == "dead":
             self.dead_t += dt
-            if self.ai_on and self.ai and self.dead_t > 1.3:
-                self.ai.record(int(self.p.max_y))
-                self.reset("play")
             return
         if self.state != "play" or self.paused:
             return
         p = self.p
-        if self.ai_on and self.ai and not p.hop:
-            try:
-                mv = self.ai.choose(self)
-            except Exception as e:                  # l'IA plante : on la coupe et on l'affiche
-                self.ai_on, mv = False, None
-                self.ai_msg, self.ai_msg_t = "Erreur IA : %s" % e, self.t
-            if mv and mv != (0, 0):
-                self.try_hop(*mv)
         if p.hop:
             h = p.hop
             h[4] += dt / HOP_T
@@ -966,16 +925,6 @@ class Game:
             self.text("Niveau %d" % self.level, self.f_small, (W // 2, 10), (255, 240, 120), anchor="top")
         if self.state == "play" and self.t - self.lvl_t < 1.6:
             self.text("NIVEAU %d !" % self.level, self.f_mid, (W // 2, 300), (255, 240, 120))
-        if self.ai_msg and self.t - self.ai_msg_t < 6:
-            self.text(self.ai_msg, self.f_small, (W // 2, H - 40), (255, 120, 120))
-        if self.ai_on and self.ai:
-            a, c = self.ai, (140, 220, 255)
-            mode = "APPREND" if a.learning else "JOUE (greedy)"
-            self.text("IA RL  %s  épisode %d  eps %.2f" % (mode, a.episodes + 1, a.epsilon),
-                      self.f_small, (20, 104), c, anchor="left")
-            self.text("moy.100 : %.0f   record IA : %d   états : %d" % (a.mean_score, a.best, len(a.q)),
-                      self.f_small, (20, 128), c, anchor="left")
-            self.text("L : apprentissage   F : vitesse x%d" % self.speed, self.f_small, (20, 152), c, anchor="left")
         if self.state == "title":
             ov = pygame.Surface((W, H), pygame.SRCALPHA)
             ov.fill((0, 0, 0, 90))
@@ -987,10 +936,6 @@ class Game:
             self.text("C : personnage  >  %s%s" % (sk["name"], lock), self.f_small, (W // 2, 590),
                       (255, 220, 80) if not lock else (255, 140, 140))
             self.text("ESPACE ou flèches pour commencer", self.f_mid, (W // 2, 640))
-            if self.ai:
-                self.text("I : regarder l'IA jouer", self.f_small, (W // 2, 730), (140, 220, 255))
-            else:
-                self.text("IA indisponible : ai_rl.py introuvable", self.f_small, (W // 2, 730), (255, 120, 120))
             self.text("Flèches / ZQSD / WASD  -  P pause  -  R rejouer", self.f_small, (W // 2, 690))
         elif self.state == "dead" and self.dead_t > (1.3 if self.dead == "eagle" else 0.8):
             ov = pygame.Surface((W, H), pygame.SRCALPHA)
@@ -1024,8 +969,7 @@ def main():
                 sys.exit()
             elif e.type == pygame.KEYDOWN:
                 game.key(e.key)
-        for _ in range(game.speed):
-            game.update(dt)
+        game.update(dt)
         game.draw()
         pygame.display.flip()
 
